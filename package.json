@@ -2,6 +2,10 @@
   "name": "yaksha-faq-e2e-tests",
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
     "test:e2e": "tsx scripts/run-e2e.ts"
   },
