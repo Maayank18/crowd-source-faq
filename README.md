@@ -10,7 +10,7 @@ Full-stack FAQ portal with semantic vector search, AI-powered community moderati
 - **Embeddings:** Xenova/multi-qa-mpnet-base-dot-v1 (768-dim, local)
 
 GitHub: https://github.com/vicharanashala/cs15
-Production: https://yaksha-faq-frontend.vercel.app
+Refer More Here -> [`docs/`](docs/README.md)
 
 ---
 
