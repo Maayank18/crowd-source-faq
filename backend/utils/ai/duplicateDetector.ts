@@ -34,15 +34,29 @@ const SYSTEM_PROMPT = `You are an expert at detecting duplicate questions in an 
 
 Given a user's question and a list of existing questions, determine which (if any) are TRUE duplicates.
 
-IMPORTANT RULES:
-- Answer ONLY with a valid JSON array. No preamble, no explanation, no markdown.
-- Each item must have: "id" (string), "score" (0.0–1.0), "reason" (string, 1 sentence max).
-- Score guide: 1.0 = identical intent, 0.8-0.99 = same topic, 0.5-0.79 = likely related, <0.5 = not a duplicate.
+OUTPUT FORMAT (very important — follow exactly):
+Return a JSON array of objects. Each object MUST have all three fields:
+  - "id": a string, copied VERBATIM from the candidate's id field
+  - "score": a number between 0 and 1
+  - "reason": a one-sentence string
+
+If there are no duplicates, return an empty array: []
+
+Do NOT return a bare number, do NOT return a string, do NOT return an object.
+Return ONLY the JSON array. No preamble, no markdown fences, no explanation.
+
+SCORING GUIDE:
+  - 0.95 to 1.00: questions ask the same thing, just worded differently
+  - 0.80 to 0.94: clearly the same topic with minor differences
+  - 0.50 to 0.79: related topic but meaningfully different
+  - below 0.50: not a duplicate
+
+Rules:
 - Different specific details are NOT duplicates (e.g. "offer letter for role X" vs "offer letter for role Y").
 - Different topics are NOT duplicates.
-- Prefer fewer high-confidence matches over many low-confidence ones.
+- When in doubt, return the match — it's better to flag a possible duplicate than miss a real one.
 
-Output: [{"id": "...", "score": 0.92, "reason": "Both ask about..."}]`;
+Example correct response: [{"id":"abc123","score":0.85,"reason":"Both ask about taking leave for exams."}]`;
 
 // ─── AI call ─────────────────────────────────────────────────────────────────
 
@@ -138,11 +152,16 @@ interface Candidate {
 }
 
 async function getVectorCandidates(query: string, topK: number): Promise<Candidate[]> {
+  // CRITICAL: 'embedding' MUST be in the select. The previous version used
+  // .select('_id question') which silently stripped the embedding field,
+  // causing the .filter() below to drop every FAQ — so the AI semantic
+  // detection ran against ZERO candidates and returned no matches. The
+  // knowledge base fallback then dominated with low-score garbage.
   const [faqs, posts] = await Promise.all([
     FAQ.find({ embedding: { $exists: true, $ne: null }, status: 'approved' })
-      .select('_id question')
+      .select('_id question embedding')
       .lean(),
-    CommunityPost.find().select('_id title body').lean(),
+    CommunityPost.find().select('_id title body embedding').lean(),
   ]);
 
   const queryEmb = await generateEmbedding(query).catch((err) => {
@@ -151,30 +170,40 @@ async function getVectorCandidates(query: string, topK: number): Promise<Candida
   });
   if (!queryEmb) return [];
 
-  const faqCandidates = faqs
-    .filter((f) => (f.embedding as unknown as number[] | undefined))
+  // Use stored embeddings directly. This is O(n) but synchronous after
+  // queryEmb is built — way faster than the previous version that
+  // generated an embedding per post on the fly (~8s for 32 posts).
+  const faqCandidates = (faqs as unknown as Array<{ _id: unknown; question: string; embedding?: number[] }>)
+    .filter((f) => Array.isArray(f.embedding) && f.embedding.length === queryEmb.length)
     .map((f) => ({
-      _id: f._id.toString(),
+      _id: String(f._id),
       title: f.question,
       source: 'faq' as const,
-      score: (f.embedding as unknown as number[])!.reduce(
-        (s: number, v: number, i: number) => s + v * queryEmb[i], 0
+      score: (f.embedding as number[]).reduce(
+        (s, v, i) => s + v * queryEmb[i], 0
       ),
     }))
     .sort((a, b) => b.score - a.score);
 
   const postCandidates: Candidate[] = [];
-  for (const p of posts) {
-    const emb = await generateEmbedding(`${p.title} ${p.body ?? ''}`).catch((err) => {
-      logger.warn(`[duplicateDetector] Failed to generate embedding for post ${p._id}: ${(err as Error).message}`);
-      return null;
-    });
+  for (const p of posts as unknown as Array<{ _id: unknown; title: string; body?: string; embedding?: number[] }>) {
+    let emb: number[] | null = null;
+    if (Array.isArray(p.embedding) && p.embedding.length === queryEmb.length) {
+      // Use stored embedding (fast path)
+      emb = p.embedding;
+    } else {
+      // Legacy fallback for posts without stored embedding
+      emb = await generateEmbedding(`${p.title} ${p.body ?? ''}`).catch((err) => {
+        logger.warn(`[duplicateDetector] Failed to generate embedding for post ${String(p._id)}: ${(err as Error).message}`);
+        return null;
+      });
+    }
     if (!emb) continue;
     postCandidates.push({
-      _id: p._id.toString(),
+      _id: String(p._id),
       title: p.title,
       source: 'community' as const,
-      score: emb.reduce((s: number, v: number, i: number) => s + v * queryEmb[i], 0),
+      score: emb.reduce((s, v, i) => s + v * queryEmb[i], 0),
     });
   }
   postCandidates.sort((a, b) => b.score - a.score);
@@ -200,8 +229,15 @@ function parseAIMatches(raw: string, candidates: Candidate[]): DuplicateMatch[] 
 
     const matches: DuplicateMatch[] = [];
     for (const item of parsed) {
+      // The model sometimes returns a bare number (e.g. "[0]") instead of
+      // the expected array of match objects. Skip any non-object items so
+      // they don't silently drop real matches and so a single malformed
+      // entry doesn't break the whole parse.
+      if (typeof item !== 'object' || item === null) continue;
       const i = item as Record<string, unknown>;
       const id = String(i.id ?? '');
+      // Skip items with no id — the candidate lookup will fail anyway.
+      if (!id) continue;
       const score = Math.max(0, Math.min(1, Number(i.score) || 0));
       const reason = String(i.reason ?? '').slice(0, 200);
       if (score < 0.50) continue;
