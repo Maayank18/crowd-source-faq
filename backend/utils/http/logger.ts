@@ -44,6 +44,19 @@ const LOG_LEVELS: Record<LogLevel, string> = {
   alert: 'ALRT', // 4 chars (abbreviated so the [TAG] is 4 wide)
 };
 
+/**
+ * v1.68 — Center a short string inside a fixed-width `[  TAG  ]`
+ * box. 6-char inner = 8-char outer. Used for both the level tag
+ * and the category tag so the columns line up.
+ */
+function centerInBox(text: string, innerWidth: number = 6): string {
+  if (text.length >= innerWidth) return `[${text}]`;
+  const totalPad = innerWidth - text.length;
+  const left = Math.floor(totalPad / 2);
+  const right = totalPad - left;
+  return `[${' '.repeat(left)}${text}${' '.repeat(right)}]`;
+}
+
 const C = {
   reset:   (s: string) => `\x1b[0m${s}\x1b[0m`,
   red:     (s: string) => `\x1b[31m${s}\x1b[0m`,
@@ -102,13 +115,13 @@ const CATEGORY_COLORS: Record<string, (s: string) => string> = {
   support:    C.yellow,
 };
 
-function coloredCategory(category: string): string {
-  const fn = CATEGORY_COLORS[category] ?? C.dim;
-  return fn(`[${category}]`);
+function coloredCategory(text: string, rawCategory: string): string {
+  const fn = CATEGORY_COLORS[rawCategory] ?? C.dim;
+  return fn(centerInBox(text));
 }
 
 function coloredLevel(level: LogLevel): string {
-  const label = `[${LOG_LEVELS[level]}]`;  // 6 chars wide incl brackets
+  const label = centerInBox(LOG_LEVELS[level]);  // 8 chars wide incl brackets
   if (level === 'alert') return C.bgAlert(label);
   if (level === 'error') return C.bgRed(label);
   if (level === 'warn')  return C.bgYellow(label);
@@ -119,7 +132,12 @@ function formatLog(entry: LogInput): string {
   const timestamp = new Date().toISOString().slice(11, 23);
   const lvl = coloredLevel(entry.level);
   const glyph = LEVEL_GLYPH_COLORS[entry.level](LEVEL_GLYPHS[entry.level]);
-  const cat = coloredCategory(entry.category);
+  // Category: truncate to 6 inner chars + '…' if longer, then
+  // center. Keeps the column width consistent so the log
+  // looks like a table.
+  const rawCat = entry.category;
+  const catText = rawCat.length > 6 ? rawCat.slice(0, 5) + '…' : rawCat;
+  const cat = coloredCategory(catText, rawCat);
   const metaKeys = Object.keys(entry.meta || {});
   const metaStr = metaKeys.length > 0 ? ` ${C.dim(JSON.stringify(entry.meta))}` : '';
   // For ALERT, add separators above + below so it stands out
