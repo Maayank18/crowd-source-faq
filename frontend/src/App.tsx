@@ -6,6 +6,7 @@ import { BatchProvider } from './context/BatchContext';
 import { FeatureFlagProvider } from './context/FeatureFlagContext';
 import AuthModal from './components/auth/AuthModal';
 import Spinner from './components/ui/Spinner';
+import ErrorBoundary from './components/ui/ErrorBoundary';
 import AskAIButton from './components/askai/AskAIButton';
 import { FeatureGate } from './components/support/FeatureGate';
 
@@ -273,7 +274,12 @@ export default function App() {
           <BatchProvider>
             <AuthModalHost>
               <Suspense fallback={<div className="min-h-screen bg-bg flex items-center justify-center"><Spinner size="md" /></div>}>
-                <AppRoutes />
+                {/* H2 fix (v1.68): top-level ErrorBoundary catches any
+                    render-time exception from any page. Without it, a
+                    single bad render unmounts the whole app. */}
+                <ErrorBoundary sectionName="App (top-level)">
+                  <AppRoutes />
+                </ErrorBoundary>
               </Suspense>
             </AuthModalHost>
           </BatchProvider>

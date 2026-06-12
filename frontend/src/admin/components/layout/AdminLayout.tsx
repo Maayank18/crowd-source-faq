@@ -3,6 +3,11 @@ import { Navigate } from 'react-router-dom';
 import AdminSidebar from './AdminSidebar';
 import AdminNavbar from './AdminNavbar';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
+// H2 fix (v1.68) — wrap the admin page slot in a section-level
+// ErrorBoundary so a single broken page doesn't kill the admin
+// shell (sidebar + navbar stay visible, the user can navigate
+// elsewhere without a hard refresh).
+import ErrorBoundary from '../../../components/ui/ErrorBoundary';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { isAdmin, loading } = useAdminAuth();
@@ -30,7 +35,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <AdminSidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0 lg:ml-56">
         <AdminNavbar onMobileMenuToggle={() => setMobileOpen(v => !v)} />
-        <main className="flex-1 p-5 lg:p-6 overflow-y-auto">{children}</main>
+        <main className="flex-1 p-5 lg:p-6 overflow-y-auto">
+          <ErrorBoundary sectionName="AdminPage" level="section">
+            {children}
+          </ErrorBoundary>
+        </main>
       </div>
     </div>
   );
