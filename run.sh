@@ -16,13 +16,18 @@ BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
 
 # ── Terminal colors (ANSI) ───────────────────────────────────────────────────
-F_INFO="\033[94m"
-F_OK="\033[92m"
-F_WARN="\033[93m"
-F_ALERT="\033[1;31m"
-F_DIM="\033[2m"
-F_BOLD="\033[1m"
-F_RESET="\033[0m"
+# Use bash ANSI-C quoting ($'...') so the values hold the
+# literal ESC byte (0x1b). Plain "..." would keep "\033" as
+# the 4-char text — sed then writes that text to the terminal
+# verbatim instead of an escape sequence, and the user
+# sees "033[2m" instead of dim color.
+F_INFO=$'\033[94m'
+F_OK=$'\033[92m'
+F_WARN=$'\033[93m'
+F_ALERT=$'\033[1;31m'
+F_DIM=$'\033[2m'
+F_BOLD=$'\033[1m'
+F_RESET=$'\033[0m'
 
 # ── Tagged log helpers ──────────────────────────────────────────────────────
 log()   { echo -e "${F_INFO}[INFO]${F_RESET} $1"; }
