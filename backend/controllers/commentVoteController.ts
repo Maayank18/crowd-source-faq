@@ -127,37 +127,67 @@ export const toggleCommentUpvote = async (req: Request, res: Response): Promise<
 export const toggleCommentDownvote = async (req: Request, res: Response): Promise<void> => {
   if (!req.user) { res.status(401).json({ message: 'Not authorized' }); return; }
   try {
-    const post = await CommunityPost.findById(req.params.id);
+    const post = await CommunityPost.findById(req.params.id as string);
     if (!post) { res.status(404).json({ message: 'Post not found.' }); return; }
 
     const comment = (post.comments as any).id(req.params.commentId);
     if (!comment) { res.status(404).json({ message: 'Comment not found.' }); return; }
 
     const userId = req.user!._id.toString();
+    const userObjectId = req.user!._id;
     const alreadyDownvoted = comment.downvotes.map((u: Types.ObjectId) => u.toString()).includes(userId);
 
-    if (alreadyDownvoted) {
-      comment.downvotes = comment.downvotes.filter((u: Types.ObjectId) => u.toString() !== userId);
-    } else {
-      comment.downvotes.push(req.user!._id);
-      comment.upvotes = comment.upvotes.filter((u: Types.ObjectId) => u.toString() !== userId);
-    }
+    // v1.68 — H3 fix: was read-modify-write on
+    //   comment.downvotes.push(req.user!._id)
+    //   comment.upvotes = comment.upvotes.filter(...)
+    //   await post.save()
+    // Two concurrent downvotes on the same comment could both
+    // read the same state, both push, and both save() — losing
+    // the other's toggle. Same fix shape as toggleCommentUpvote:
+    // atomic $pull + $addToSet on the matched comment subdoc.
+    await CommunityPost.findOneAndUpdate(
+      { _id: post._id, 'comments._id': new Types.ObjectId(req.params.commentId as string) },
+      alreadyDownvoted
+        ? { $pull: { 'comments.$.downvotes': userObjectId } }
+        : {
+            $addToSet: { 'comments.$.downvotes': userObjectId },
+            $pull: { 'comments.$.upvotes': userObjectId },
+          },
+      { returnDocument: 'after' }
+    );
 
-    const netScore = comment.upvotes.length - comment.downvotes.length;
+    // Re-fetch for accurate counts (same pattern as upvote)
+    const updated = await CommunityPost.findById(post._id).select('comments.upvotes comments.downvotes');
+    const refreshed = (updated?.comments as any).id(req.params.commentId);
 
-    // Auto-delete deeply downvoted comments (net score <= -5)
+    const upvotes = refreshed?.upvotes?.length ?? 0;
+    const downvotes = refreshed?.downvotes?.length ?? 0;
+    const netScore = upvotes - downvotes;
+
+    // Auto-delete deeply downvoted comments (net score <= -5).
+    // v1.68 — H3 fix: the previous code did comment.deleteOne()
+    // + post.save() after a read of post. The atomic update
+    // above already changed the downvotes array; the deleteOne
+    // + save() here is now a separate write. Still racy if two
+    // requests both push the net score below -5 simultaneously,
+    // but the worst case is a duplicate delete (MongoDB $pull
+    // on a missing element is a no-op) — safe.
+    let deleted = false;
     if (netScore <= -5) {
-      comment.deleteOne();
-      await post.save();
-      res.json({ deleted: true, message: 'Comment obliterated.' });
-      return;
+      const delRes = await CommunityPost.findOneAndUpdate(
+        { _id: post._id, 'comments._id': new Types.ObjectId(req.params.commentId as string) },
+        { $pull: { comments: { _id: new Types.ObjectId(req.params.commentId as string) } } },
+      );
+      deleted = delRes !== null;
+      if (deleted) {
+        res.json({ deleted: true, message: 'Comment obliterated.' });
+        return;
+      }
     }
-
-    await post.save();
 
     res.json({
-      upvotes: comment.upvotes.length,
-      downvotes: comment.downvotes.length,
+      upvotes,
+      downvotes,
       netScore,
       downvotedByMe: !alreadyDownvoted,
       deleted: false,
