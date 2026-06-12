@@ -7,7 +7,7 @@
  *  1. runUnansweredEscalationCheck() is called periodically by the scheduler
  *     (started in server.ts). It finds all 'unanswered' posts where
  *     escalationStatus === 'none' and createdAt is older than
- *     UNANSWERED_ESCALATION_DAYS, then marks them as 'escalated'.
+ *     readConfig().days, then marks them as 'escalated'.
  *  2. Answering a post (resolvePost) clears escalationStatus back to 'none'
  *     so an answered post is never escalated.
  *  3. Admins review escalated posts via GET /admin/escalated-posts and can
@@ -27,13 +27,16 @@ import { cronLog } from '../utils/http/logger.js';
 import { clearExpiredGoldenBans } from './goldenTicketAdminController.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
-// Threshold in days after which an unanswered post is auto-escalated.
-const UNANSWERED_ESCALATION_DAYS = parseInt(
-  process.env['UNANSWERED_ESCALATION_DAYS'] || '7'
-);
-
-// Time-Trial: threshold in hours after which an unanswered post enters the challenge window.
-const TIME_TRIAL_HOURS = parseInt(process.env['TIME_TRIAL_HOURS'] || '16');
+// v1.68 — M5: env vars are now read on every tick of the
+// scheduler (helper below) instead of once at module load.
+// Operators expect env hot-reload to take effect without
+// restarting the process.
+function readConfig(): { days: number; trialHours: number } {
+  return {
+    days: parseInt(process.env['readConfig().days'] || '7', 10),
+    trialHours: parseInt(process.env['readConfig().trialHours'] || '16', 10),
+  };
+}
 
 // ─── Scheduler ───────────────────────────────────────────────────────────────
 // Interval handle stored so server.ts can clear it on shutdown.
@@ -72,7 +75,7 @@ export function startEscalationScheduler(): void {
 
   cronLog.info(
     `[escalation] Scheduler started — checking every ${CHECK_INTERVAL_MINUTES}m ` +
-    `for posts unanswered > ${UNANSWERED_ESCALATION_DAYS}d`
+    `for posts unanswered > ${readConfig().days}d`
   );
 }
 
@@ -91,7 +94,7 @@ export function stopEscalationScheduler(): void {
  * Finds all posts that:
  *   - status === 'unanswered'
  *   - escalationStatus === 'none'
- *   - createdAt older than UNANSWERED_ESCALATION_DAYS
+ *   - createdAt older than readConfig().days
  *
  * Marks each as 'escalated', logs ModerationLog, and notifies all admins/mods.
  *
@@ -99,7 +102,7 @@ export function stopEscalationScheduler(): void {
  * escalated posts have escalationStatus !== 'none' so they are skipped.
  */
 export async function runUnansweredEscalationCheck(): Promise<void> {
-  const cutoff = new Date(Date.now() - UNANSWERED_ESCALATION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - readConfig().days * 24 * 60 * 60 * 1000);
 
   // Find all eligible posts in one query
   const eligible = await CommunityPost.find({
@@ -119,7 +122,7 @@ export async function runUnansweredEscalationCheck(): Promise<void> {
       recipient: mod._id,
       type: 'expert_request' as any, // reuse existing type — fits the escalation alert use case
       title: 'Unanswered question escalated',
-      message: `${eligible.length} community question${eligible.length === 1 ? '' : 's'} ha${eligible.length === 1 ? 's' : 've'} been unanswered for ${UNANSWERED_ESCALATION_DAYS}+ days and need moderator attention.`,
+      message: `${eligible.length} community question${eligible.length === 1 ? '' : 's'} ha${eligible.length === 1 ? 's' : 've'} been unanswered for ${readConfig().days}+ days and need moderator attention.`,
       link: '/admin/moderation?tab=escalated',
     }).catch((err) => {
       cronLog.warn(`[escalation] Failed to notify mod/admin ${mod._id} on unanswered question escalation: ${(err as Error).message}`);
@@ -132,7 +135,7 @@ export async function runUnansweredEscalationCheck(): Promise<void> {
       {
         escalationStatus: 'escalated',
         escalatedAt: new Date(),
-        escalationReason: `Unanswered for ${UNANSWERED_ESCALATION_DAYS}+ days (auto-escalated)`,
+        escalationReason: `Unanswered for ${readConfig().days}+ days (auto-escalated)`,
       }
     ),
     ...notifications,
@@ -153,7 +156,7 @@ export async function runUnansweredEscalationCheck(): Promise<void> {
  * Finds all posts where:
  *   - status === 'unanswered'
  *   - timeTrialStatus === 'none'
- *   - createdAt is older than TIME_TRIAL_HOURS
+ *   - createdAt is older than readConfig().trialHours
  *
  * Activates them by setting timeTrialStatus = 'pending' and recording timeTrialStartedAt.
  * This marks them as live Time-Trial challenges.
@@ -162,7 +165,7 @@ export async function runUnansweredEscalationCheck(): Promise<void> {
  * so they are skipped.
  */
 export async function runTimeTrialCheck(): Promise<void> {
-  const cutoff = new Date(Date.now() - TIME_TRIAL_HOURS * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - readConfig().trialHours * 60 * 60 * 1000);
 
   const eligible = await CommunityPost.find({
     status: 'unanswered',

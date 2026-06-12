@@ -217,7 +217,13 @@ export const getLeaderboard = async (req: Request, res: Response): Promise<void>
     // SP leaderboard (v1.65) — only meaningful for period='all' since SP
     // is a wallet balance, not a time-windowed action sum.
     if (sort === 'sp') {
-      const users = await User.find({ isDeleted: false, isBanned: false })
+      // v1.68 — L2: bound the result set (see above).
+    // v1.68 — L2: bound the result set (see above).
+    const users = await User.find({ isDeleted: false, isBanned: false })
+      .sort({ points: -1, reputation: -1 })
+      .limit(200)
+      .sort({ sp: -1, reputation: -1 })
+      .limit(200)
         .sort({ sp: -1, reputation: -1 })
         .limit(limit)
         .select('name sp reputation tier positiveBadges createdAt acceptedAnswers faqContributions');
@@ -240,7 +246,13 @@ export const getLeaderboard = async (req: Request, res: Response): Promise<void>
 
     // For weekly/monthly, aggregate from ReputationLog; for 'all', use User.points
     if (period === 'all') {
-      const users = await User.find({ isDeleted: false, isBanned: false })
+      // v1.68 — L2: bound the result set (see above).
+    // v1.68 — L2: bound the result set (see above).
+    const users = await User.find({ isDeleted: false, isBanned: false })
+      .sort({ points: -1, reputation: -1 })
+      .limit(200)
+      .sort({ sp: -1, reputation: -1 })
+      .limit(200)
         .sort({ points: -1, reputation: -1 })
         .limit(limit)
         .select('name points reputation tier positiveBadges createdAt acceptedAnswers faqContributions');
@@ -288,7 +300,10 @@ export const getLeaderboard = async (req: Request, res: Response): Promise<void>
     ]);
 
     const userIds = aggregation.map(a => a._id);
+    // v1.68 — L2: bound the result set (see above).
     const users = await User.find({ _id: { $in: userIds }, isDeleted: false, isBanned: false })
+      .sort({ points: -1, reputation: -1 })
+      .limit(200)
       .select('name points reputation tier positiveBadges createdAt acceptedAnswers faqContributions');
 
     const userMap = new Map(users.map(u => [u._id.toString(), u]));

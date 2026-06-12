@@ -21,6 +21,18 @@ export interface AuthedRequest extends Request {
  * revocation rules. Returns the user on success; on failure writes the 401
  * response and returns null.
  */
+// v1.68 — L4: defensive throw if JWT_SECRET is missing. The
+// validateEnv() check at boot should have caught this, but
+// if something bypasses that (e.g. a test or a config
+// override), the jwt.verify call below would surface a
+// cryptic 'secretOrPrivateKey must have a value' error.
+// Throw a clear one instead.
+function requireJwtSecret(): string {
+  const v = process.env.JWT_SECRET;
+  if (!v) throw new Error('JWT_SECRET is required (set in backend/.env)');
+  return v;
+}
+
 export async function verifyAndLoadUser(
   req: AuthedRequest,
   res: Response
@@ -36,7 +48,7 @@ export async function verifyAndLoadUser(
 
   let decoded: VerifiedToken;
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET!) as VerifiedToken;
+    decoded = jwt.verify(token, requireJwtSecret()) as VerifiedToken;
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
       res.status(401).json({ message: 'Session expired. Please log in again.' });
