@@ -77,15 +77,26 @@ export const toggleCommentUpvote = async (req: Request, res: Response): Promise<
         logger.warn(`[commentVote] Failed to create tea drop for comment author ${commentAuthorId}: ${(err as Error).message}`);
       });
 
-      // Award +5 points to comment author for receiving answer upvote
+      // Award +5 points to comment author for receiving answer upvote.
+      // v1.68 — C1 fix: the previous code did findByIdAndUpdate
+      // (atomic $inc) then mutated tier in memory and called
+      // save(). The save() re-wrote the in-memory doc, which was
+      // loaded at the time of the $inc — any concurrent
+      // findByIdAndUpdate between our $inc and our save() would
+      // have its increment clobbered. Fix: split into two
+      // atomic updates. Tier is a derived value; eventual
+      // consistency is acceptable.
       const updatedCommentAuthor = await User.findByIdAndUpdate(
         commentAuthorId,
         { $inc: { points: 5, reputation: 5 } },
-        { new: true }
+        { new: true },
       );
       if (updatedCommentAuthor) {
-        updatedCommentAuthor.tier = calculateTier(updatedCommentAuthor.points);
-        await updatedCommentAuthor.save();
+        const newTier = calculateTier(updatedCommentAuthor.points);
+        await User.updateOne(
+          { _id: commentAuthorId },
+          { $set: { tier: newTier } },
+        );
         autoAwardBadges(commentAuthorId.toString()).catch((err) => {
           logger.warn(`[commentVote] Failed to auto-award badges to ${commentAuthorId}: ${(err as Error).message}`);
         });
