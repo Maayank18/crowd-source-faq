@@ -109,44 +109,64 @@ Examples:
 }
 
 const M = (() => {
-  // Lazy-load the model registrations so this script can be
-  // invoked even before the backend's server.ts has run.
-  // Importing server.ts would try to bind to PORT — bad.
-  // Instead, we import each model directly, which is enough
-  // to trigger ensureIndexes().
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const r = (path: string) => require(path);
-  return {
-    User: r('../models/User.js').default,
-    FAQ: r('../models/FAQ.js').default,
-    CommunityPost: r('../models/CommunityPost.js').default,
-    Notification: r('../models/Notification.js').default,
-    SearchLog: r('../models/SearchLog.js').default,
-    UnresolvedSearch: r('../models/UnresolvedSearch.js').default,
-    RepLog: r('../models/ReputationLog.js').default,
-    Badge: r('../models/Badge.js').default,
-    AppSetting: r('../models/AppSetting.js').default,
-    FeatureFlag: r('../models/FeatureFlag.js').default,
-    Batch: r('../models/Batch.js').default,
-    Category: r('../models/Category.js').default,
-    AttendanceGuidance: r('../models/AttendanceGuidance.js').default,
-    SupportCategory: r('../models/SupportCategory.js').default,
-    DocumentInsight: r('../models/DocumentInsight.js').default,
-    DocumentRecord: r('../models/DocumentRecord.js').default,
-    ZoomMeeting: r('../models/ZoomMeeting.js').default,
-    TeaNotification: r('../models/TeaNotification.js').default,
-    ModerationLog: r('../models/ModerationLog.js').default,
-    FreshReviewLog: r('../models/FreshReviewLog.js').default,
-    FreshReviewVote: r('../models/FreshReviewVote.js').default,
-    RevokedToken: r('../models/RevokedToken.js').default,
-    GuestEvent: r('../models/GuestEvent.js').default,
-    AdminLog: r('../models/AdminLog.js').default,
-    NotificationSettings: r('../models/NotificationSettings.js').default,
-    AiConfig: r('../models/AiConfig.js').default,
-    PipelineResult: r('../models/PipelineResult.js').default,
-    TranscriptKnowledge: r('../models/TranscriptKnowledge.js').default,
-  };
+  // Legacy IIFE for backwards compat with the few remaining
+  // `M.X` references. v1.68 — the new approach is to use
+  // `await loadAllModels()` directly, which dynamic-imports
+  // the models on demand and avoids the IIFE-scope issue.
+  return {};
 })();
+
+// v1.68 — dynamic-import each model instead of using
+// `require()` (the project is ESM and `require` isn't
+// defined in this scope). The models get registered with
+// Mongoose the first time they're imported, which triggers
+// their schema.index() declarations (ensureIndexes). This
+// is what the previous require-based block was trying to
+// achieve, just compatible with ESM.
+const modelPaths: Record<string, string> = {
+  User: '../models/User.js',
+  FAQ: '../models/FAQ.js',
+  CommunityPost: '../models/CommunityPost.js',
+  Notification: '../models/Notification.js',
+  SearchLog: '../models/SearchLog.js',
+  UnresolvedSearch: '../models/UnresolvedSearch.js',
+  RepLog: '../models/ReputationLog.js',
+  Badge: '../models/Badge.js',
+  AppSetting: '../models/AppSetting.js',
+  FeatureFlag: '../models/FeatureFlag.js',
+  Batch: '../models/Batch.js',
+  Category: '../models/Category.js',
+  AttendanceGuidance: '../models/AttendanceGuidance.js',
+  SupportCategory: '../models/SupportCategory.js',
+  DocumentInsight: '../models/DocumentInsight.js',
+  DocumentRecord: '../models/DocumentRecord.js',
+  ZoomMeeting: '../models/ZoomMeeting.js',
+  TeaNotification: '../models/TeaNotification.js',
+  ModerationLog: '../models/ModerationLog.js',
+  FreshReviewLog: '../models/FreshReviewLog.js',
+  FreshReviewVote: '../models/FreshReviewVote.js',
+  RevokedToken: '../models/RevokedToken.js',
+  GuestEvent: '../models/GuestEvent.js',
+  AdminLog: '../models/AdminLog.js',
+  NotificationSettings: '../models/NotificationSettings.js',
+  AiConfig: '../models/AiConfig.js',
+  PipelineResult: '../models/PipelineResult.js',
+  TranscriptKnowledge: '../models/TranscriptKnowledge.js',
+};
+
+// Returns a map of {name: Model} after importing every
+// model in `modelPaths`. Mongoose registers the schema
+// the first time the model is imported, so this is
+// equivalent to calling ensureIndexes() on each.
+async function loadAllModels(): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  for (const [name, path] of Object.entries(modelPaths)) {
+    // Dynamic import — ESM compatible
+    const mod = await import(/* @vite-ignore */ path) as { default?: { modelName: string } };
+    out[name] = mod.default ?? mod;
+  }
+  return out;
+}
 
 async function step(title: string, fn: () => Promise<void>): Promise<void> {
   console.log(`\n=== ${title} ===`);
@@ -171,19 +191,23 @@ async function main(): Promise<void> {
 
   // 2. Model-defined indexes
   await step('Create model indexes (ensureIndexes)', async () => {
-    const models = Object.values(M);
-    for (const Model of models) {
-      if (Model && typeof Model.createIndexes === 'function') {
+    // v1.68 — import each model dynamically. Mongoose
+    // registers the schema and creates the index when
+    // the model is first instantiated.
+    const models = await loadAllModels();
+    for (const [, Model] of Object.entries(models)) {
+      const m = Model as { createIndexes?: () => Promise<unknown>; ensureIndexes?: () => Promise<unknown>; modelName?: string };
+      if (m && typeof m.createIndexes === 'function') {
         try {
-          await Model.createIndexes();
-          console.log(`  - ${Model.modelName}: indexes ensured`);
+          await m.createIndexes();
+          console.log(`  - ${m.modelName ?? 'model'}: indexes ensured`);
         } catch (err) {
-          console.warn(`  ! ${Model.modelName}: ${(err as Error).message}`);
+          console.warn(`  ! ${m.modelName ?? 'model'}: ${(err as Error).message}`);
         }
-      } else if (Model && typeof Model.ensureIndexes === 'function') {
+      } else if (m && typeof m.ensureIndexes === 'function') {
         // Mongoose 6 compat
-        await Model.ensureIndexes();
-        console.log(`  - ${Model.modelName}: indexes ensured`);
+        await m.ensureIndexes();
+        console.log(`  - ${m.modelName ?? 'model'}: indexes ensured`);
       }
     }
   });
@@ -225,8 +249,15 @@ async function main(): Promise<void> {
     }
   });
 
-  // 4. Vector index
-  await step('Create vector search index (mxbai 1024-dim)', async () => {
+  // 4. Vector indexes — three collections hold the
+  //    1024-dim mxbai-embed-large-v1 vectors and need a
+  //    vector_index for $vectorSearch to work:
+  //      - yaksha_faq_faqs (public search)
+  //      - yaksha_faq_communityposts (community search)
+  //      - yaksha_transcript_knowledge (auto-extracted KB,
+  //        used by the /api/ask-ai auto-answer pipeline
+  //        as the zero-human "knowledge base" path)
+  await step('Create vector search indexes (mxbai 1024-dim)', async () => {
     const db = mongoose.connection.db!;
     const EMBEDDING_DIM = 1024;
     const VECTOR_INDEX = {
@@ -241,22 +272,18 @@ async function main(): Promise<void> {
       },
     };
     if (args.dropVectorIndex) {
-      try {
-        await db.collection('yaksha_faq_faqs').dropSearchIndex('vector_index');
-        console.log('  - dropped existing yaksha_faq_faqs.vector_index');
-      } catch (err) {
-        const e = err as { code?: number; message?: string };
-        if (e.code !== 27 && !e.message?.toLowerCase().includes('not found')) throw err;
-      }
-      try {
-        await db.collection('yaksha_faq_communityposts').dropSearchIndex('vector_index');
-        console.log('  - dropped existing yaksha_faq_communityposts.vector_index');
-      } catch (err) {
-        const e = err as { code?: number; message?: string };
-        if (e.code !== 27 && !e.message?.toLowerCase().includes('not found')) throw err;
+      for (const coll of ['yaksha_faq_faqs', 'yaksha_faq_communityposts', 'yaksha_transcript_knowledge']) {
+        try {
+          await db.collection(coll).dropSearchIndex('vector_index');
+          console.log(`  - dropped existing ${coll}.vector_index`);
+        } catch (err) {
+          const e = err as { code?: number; message?: string };
+          if (e.code !== 27 && !e.message?.toLowerCase().includes('not found')) throw err;
+          console.log(`  - ${coll}.vector_index doesn't exist, nothing to drop`);
+        }
       }
     }
-    for (const collName of ['yaksha_faq_faqs', 'yaksha_faq_communityposts']) {
+    for (const collName of ['yaksha_faq_faqs', 'yaksha_faq_communityposts', 'yaksha_transcript_knowledge']) {
       try {
         await db.collection(collName).createSearchIndex(VECTOR_INDEX);
         console.log(`  - created ${collName}.vector_index (1024-dim, dotProduct)`);
@@ -273,6 +300,7 @@ async function main(): Promise<void> {
 
   // 5. Seed default Badges
   await step('Seed default Badges', async () => {
+    const { Badge } = (await loadAllModels()) as { Badge: typeof import('../models/Badge.js').default };
     const DEFAULT_BADGES: { name: string; slug: string; description: string; icon: string; type: 'positive' | 'negative'; actionTrigger: 'auto' | 'manual'; pointsRequired?: number }[] = [
       { name: 'Curious Mind', slug: 'curious-mind', description: 'Asked your first question', icon: '❓', type: 'positive', actionTrigger: 'auto' },
       { name: 'First Answer', slug: 'first-answer', description: 'Posted your first community answer', icon: '💡', type: 'positive', actionTrigger: 'auto' },
@@ -288,7 +316,6 @@ async function main(): Promise<void> {
       { name: 'Suspension', slug: 'suspension', description: 'Suspended from posting', icon: '🚫', type: 'negative', actionTrigger: 'manual' },
       { name: 'Banned', slug: 'banned', description: 'Account banned', icon: '⛔', type: 'negative', actionTrigger: 'manual' },
     ];
-    const Badge = M.Badge;
     let created = 0;
     for (const b of DEFAULT_BADGES) {
       const existing = await Badge.findOne({ slug: b.slug });
@@ -302,7 +329,7 @@ async function main(): Promise<void> {
 
   // 6. Seed default SupportCategories
   await step('Seed default SupportCategories', async () => {
-    const SupportCategory = M.SupportCategory;
+    const { SupportCategory } = (await loadAllModels()) as { SupportCategory: typeof import('../models/SupportCategory.js').default };
     const cats = [
       { issueType: 'internet', label: 'Internet Problem', shortLabel: 'Internet', description: 'Wi-Fi, hotspot, or general connectivity issues', iconKey: 'wifi' as const,
         steps: ['Restart your router or hotspot once.', 'Switch to a backup network if one is available.', 'Disable VPN or proxy tools that may interfere with the class link.', 'Note the time the connection dropped so the team can review it.'],
@@ -336,7 +363,7 @@ async function main(): Promise<void> {
 
   // 7. Create initial admin user
   await step('Create initial admin user', async () => {
-    const User = M.User;
+    const { User } = (await loadAllModels()) as { User: typeof import('../models/User.js').default };
     const existing = await User.findOne({ email: args.adminEmail });
     if (existing) {
       console.log(`  - admin user ${args.adminEmail} already exists, skipping`);
