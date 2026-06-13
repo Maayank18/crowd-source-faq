@@ -53,6 +53,8 @@ freshReviewVoteSchema.index(
 
 // For fast counting per cycle
 freshReviewVoteSchema.index({ faqId: 1, reviewCycle: 1, verdict: 1 });
+// v1.68 — schema index: 'show me all my votes' view (profile page).
+freshReviewVoteSchema.index({ voterId: 1, createdAt: -1 });
 
 export default mongoose.model<IFreshReviewVote>(
   'FreshReviewVote',
