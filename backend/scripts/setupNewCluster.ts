@@ -260,15 +260,23 @@ async function main(): Promise<void> {
   await step('Create vector search indexes (mxbai 1024-dim)', async () => {
     const db = mongoose.connection.db!;
     const EMBEDDING_DIM = 1024;
+    // v1.68.1 — the actual Atlas search-index spec. Previous
+    // version of this script used `mappings.vectorSearch`
+    // which isn't a real Atlas format — the index got
+    // created but $vectorSearch had no field to query.
+    // Switched to the canonical `fields` array form.
     const VECTOR_INDEX = {
       name: 'vector_index',
+      type: 'vectorSearch',
       definition: {
-        mappings: {
-          vectorSearch: {
-            dimensions: EMBEDDING_DIM,
+        fields: [
+          {
+            type: 'knnVector',
+            path: 'embedding',
+            numDimensions: EMBEDDING_DIM,
             similarity: 'dotProduct',
           },
-        },
+        ],
       },
     };
     if (args.dropVectorIndex) {
