@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import Footer from '../components/layout/Footer';
+import UserActiveProgramIndicator from '../components/layout/UserActiveProgramIndicator';
 import SearchBar from '../components/search/SearchBar';
 import { FAQDoodles } from '../components/ui/PageDoodles';
 import axios from 'axios';
@@ -433,6 +434,13 @@ export default function FAQPage() {
       <FAQDoodles />
 
       <main className="max-w-[1200px] mx-auto px-4 sm:px-6 pt-[112px] sm:pt-[128px] pb-10 relative z-10">
+        {/* v1.69 — Phase 12: persistent "browsing program" pill so
+            the user always knows which program's FAQs they're
+            reading. The pill reads from BatchContext (the same
+            source the navbar's BatchSwitcher uses). */}
+        <div className="flex justify-center">
+          <UserActiveProgramIndicator />
+        </div>
         <div className="mb-6 text-center">
           <h1 className="text-2xl sm:text-3xl font-serif text-ink tracking-tight">
             Intern FAQs — <span className="text-accent">solved</span>
