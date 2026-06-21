@@ -6,6 +6,7 @@ import { useFeatureFlag } from '../../context/FeatureFlagContext';
 import { buildTransformedUrl } from '../../hooks/useCloudinaryUpload';
 import NotificationBell from '../../components/notifications/NotificationBell';
 import SpurtiChip from './SpurtiChip';
+import ZoomBubble from '../welcome/ZoomBubble';
 
 // v1.65.1 — `xlOnly?: true` flags a nav tab as hidden below the xl
 // breakpoint (1280px). Used by Golden Ticket when the center
@@ -18,7 +19,6 @@ const navItems: NavItem[] = [
   { label: 'FAQ', to: '/faq' },
   { label: 'Welcome Package', to: '/welcome' },
   { label: 'Community', to: '/community' },
-  { label: 'Leaderboard', to: '/leaderboard' },
 ];
 
 function getAvatarColor(name?: string): string {
@@ -97,7 +97,7 @@ export default function Navbar({ showProgramSwitcher: _showProgramSwitcher = fal
   // currently off" panel if a user types the URL directly).
   const goldenOn = useFeatureFlag('goldenTicket');
   // v1.65.1 — Golden Ticket link. Shown only at xl: because the
-  // center pill (Home/FAQ/Community/Leaderboard + the sessionSupport
+  // center pill (Home/FAQ/Community + the sessionSupport
   // tabs Support/Golden) is already at capacity at lg. At xl there's
   // enough room; below that Golden is reachable via /golden and
   // any admin nudge in the inbox.
@@ -175,29 +175,6 @@ export default function Navbar({ showProgramSwitcher: _showProgramSwitcher = fal
           </NavLink>
         </div>
 
-        {/* Center Pill Group (Desktop) — Vertically centered in the
-            navbar. Hidden below xl, shown on xl+ so it's available
-            across the 1280–1535px laptop range too. At 2xl+ the
-            Ask Question button joins it on the right. Tighter
-            padding (gap-0.5 px-2) + smaller font keeps "Support"
-            and "Golden" from truncating at the 1280–1535px range. */}
-        <div className="hidden xl:flex items-center gap-0.5 px-2 py-1 rounded-full border-[1.5px] border-border/60 bg-card/85 backdrop-blur-[20px] shadow-subtle absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-all duration-300 hover:bg-card/95">
-          {allNavItems.map(({ label, to, xlOnly }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                // Active = solid sage pill with white text.
-                // Inactive = transparent, ink-soft, hover lifts to ink.
-                // transition-all duration-200 = smooth hover.
-                `nav-pill text-[0.78rem] ${isActive ? 'active' : ''} ${xlOnly ? 'hidden xl:inline-flex' : ''}`
-              }
-            >
-              {label}
-            </NavLink>
-          ))}
-        </div>
 
         {/* Center Pill Group (Desktop) */}
         <div className="justify-self-center">
@@ -266,9 +243,10 @@ export default function Navbar({ showProgramSwitcher: _showProgramSwitcher = fal
                 Ask Question
               </button>
 
-              <div className="hidden lg:block w-px h-6 bg-border" />
+              <div className="hidden lg:block w-px h-6 bg-border ml-3 lg:ml-4 2xl:ml-0" />
 
               <div className="flex items-center gap-2">
+                <ZoomBubble />
                 {/* Spurti Points chip */}
                 <SpurtiChip />
 

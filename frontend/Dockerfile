@@ -4,22 +4,31 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Stage 1: Build the Vite SPA ──────────────────────────────────────────────
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
+
+RUN npm install -g pnpm@9
 
 WORKDIR /app
 
-# Copy root workspace files first (for npm workspaces resolution)
-COPY package.json package-lock.json ./
+# Copy root workspace configurations
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json turbo.json ./
+
+# Copy package configurations
+COPY packages/config/package.json ./packages/config/
+COPY packages/types/package.json ./packages/types/
+COPY packages/utils/package.json ./packages/utils/
+COPY packages/validation/package.json ./packages/validation/
 COPY frontend/package.json ./frontend/
 
-# Install dependencies (frontend workspace only)
-RUN npm ci --workspace=frontend --include-workspace-root
+# Install dependencies
+RUN pnpm install --frozen-lockfile
 
-# Copy frontend source
+# Copy source code
+COPY packages/ ./packages/
 COPY frontend/ ./frontend/
 
-# Build the Vite SPA → produces frontend/dist/
-RUN npm run build --workspace=frontend
+# Build frontend static bundle
+RUN pnpm build --filter=yaksha-faq-frontend
 
 # ── Stage 2: Serve with Nginx ────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS serve

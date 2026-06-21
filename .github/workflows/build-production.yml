@@ -13,6 +13,7 @@
 #    PROD_SSH_USER        — SSH username on production VPS
 #    PROD_SSH_KEY         — SSH private key for production VPS
 #    INFISICAL_TOKEN      — Infisical service token (production environment)
+#    INFISICAL_PROJECT_ID — Infisical project ID
 # ═══════════════════════════════════════════════════════════════════════════════
 
 name: Build & Deploy to Production
@@ -142,6 +143,7 @@ jobs:
             export DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
             export INFISICAL_TOKEN="${{ secrets.INFISICAL_TOKEN }}"
             export INFISICAL_ENVIRONMENT=${{ env.INFISICAL_ENVIRONMENT }}
+            export INFISICAL_PROJECT_ID="${{ secrets.INFISICAL_PROJECT_ID }}"
             export INFISICAL_SECRET_PATH=${{ env.INFISICAL_SECRET_PATH }}
 
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d

@@ -12,6 +12,8 @@
 #    TAG                 — Image tag (defaults to "latest")
 # ═══════════════════════════════════════════════════════════════════════════════
 
+version: '3.8'
+
 services:
   backend:
     image: ${DOCKERHUB_USERNAME:-vicharanashala}/csfaq-backend:${TAG:-latest}
@@ -21,8 +23,9 @@ services:
       - NODE_ENV=production
       - INFISICAL_TOKEN
       - INFISICAL_ENVIRONMENT
+      - INFISICAL_PROJECT_ID
       - INFISICAL_SECRET_PATH
-    command: ["sh", "-c", "infisical run --env=\"$$INFISICAL_ENVIRONMENT\" --path=\"$$INFISICAL_SECRET_PATH\" -- node --import tsx server.ts"]
+    command: ["sh", "-c", "infisical run --env=\"$$INFISICAL_ENVIRONMENT\" --projectId=\"$$INFISICAL_PROJECT_ID\" --path=\"$$INFISICAL_SECRET_PATH\" -- node --import tsx src/server.ts"]
 
   frontend:
     image: ${DOCKERHUB_USERNAME:-vicharanashala}/csfaq-frontend:${TAG:-latest}

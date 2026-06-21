@@ -1,13 +1,10 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Yaksha FAQ Portal — Backend Dockerfile
 #  Multi-stage: dependency install → lean runtime with Infisical CLI
-#  Inspired by vicharanashala/wa-client
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Stage 1: Install production dependencies ─────────────────────────────────
-FROM node:20-bookworm-slim AS deps
-
-WORKDIR /app
+# ── Stage 1: Install dependencies ─────────────────────────────────
+FROM node:22-bookworm-slim AS deps
 
 # Install system dependencies needed to build native node modules
 # (bcryptjs, @huggingface/transformers ONNX runtime, sharp, etc.)
@@ -17,15 +14,27 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy root workspace + backend package files
-COPY package.json package-lock.json ./
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+# Copy root workspace configurations
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json turbo.json ./
+
+# Copy package configurations
+COPY packages/config/package.json ./packages/config/
+COPY packages/types/package.json ./packages/types/
+COPY packages/utils/package.json ./packages/utils/
+COPY packages/validation/package.json ./packages/validation/
 COPY backend/package.json ./backend/
 
-# Install production dependencies only (backend workspace)
-RUN npm ci --workspace=backend --include-workspace-root --omit=dev
+# Install dependencies (only configs copied so far for caching)
+RUN pnpm install --frozen-lockfile
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS runtime
+FROM node:22-bookworm-slim AS runtime
+
+RUN npm install -g pnpm@9
 
 WORKDIR /app
 
@@ -44,14 +53,18 @@ RUN curl -1sLf \
     apt-get update && apt-get install -y infisical \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy production node_modules from deps stage (workspace deps are hoisted to root)
+# Copy workspace dependencies & cached store from deps stage
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages ./packages
+COPY --from=deps /app/backend ./backend
+COPY --from=deps /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/tsconfig.base.json /app/turbo.json ./
 
-# Copy backend source code
+# Copy actual source files
+COPY packages/ ./packages/
 COPY backend/ ./backend/
 
-# Copy root package.json (needed for workspace resolution)
-COPY package.json ./
+# Re-run install to make sure all symlinks (workspaces) are properly linked
+RUN pnpm install --frozen-lockfile --offline
 
 # Create logs directory
 RUN mkdir -p /app/logs
@@ -67,6 +80,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
     CMD curl -sf http://localhost:6767/api/health || exit 1
 
 # Run the server using tsx (TypeScript executor from node_modules)
-# tsx is included in production deps since it's in "dependencies" via the
-# root workspace. We use node --import to register the tsx loader.
-CMD ["node", "--import", "tsx", "server.ts"]
+CMD ["node", "--import", "tsx", "src/server.ts"]
