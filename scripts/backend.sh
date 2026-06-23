@@ -63,7 +63,7 @@ fi
 # ── Check / start backend ───────────────────────────────────────────────────
 if is_running; then
   ok "backend already running on http://localhost:6767"
-  ok "health → http://localhost:6767/api/health"
+  ok "health → http://localhost:6767/csfaq/api/health"
 else
   stop_port 6767
   cd "$BACKEND"
